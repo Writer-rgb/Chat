@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hentech Global Connect</title>
+    <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-database-compat.js"></script>
+    <style>
+        :root { --primary: #4f46e5; --main-clr: #0ea5e9; --gf-clr: #ec4899; --bg: #f1f5f9; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .card { background: white; width: 95%; max-width: 420px; border-radius: 20px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); overflow: hidden; }
+        .header { background: var(--primary); color: white; padding: 20px; text-align: center; position: relative; }
+        .content { padding: 25px; }
+        .hidden { display: none; }
+        input, select { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #e2e8f0; border-radius: 10px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 10px; cursor: pointer; font-weight: 600; margin-top: 10px; }
+        .logout-btn { position: absolute; right: 15px; top: 22px; background: rgba(255,255,255,0.2); font-size: 11px; width: auto; padding: 5px 12px; margin: 0; }
+        #chat-window { height: 320px; border: 1px solid #f1f5f9; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px; background: #fff; border-radius: 10px; }
+        .msg { padding: 10px 14px; border-radius: 15px; font-size: 14px; max-width: 80%; line-height: 1.4; }
+        .main-msg { align-self: flex-start; background: var(--main-clr); color: white; border-bottom-left-radius: 2px; }
+        .gf-msg { align-self: flex-end; background: var(--gf-clr); color: white; border-bottom-right-radius: 2px; }
+        .meta { font-size: 9px; font-weight: bold; text-transform: uppercase; margin-bottom: 3px; display: block; opacity: 0.8; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div class="header">
+        <button id="logout-ui" class="logout-btn hidden" onclick="logout()">Logout</button>
+        <h2 id="title">Hentech Connect</h2>
+    </div>
+
+    <div id="step-login" class="content">
+        <input type="text" id="shared-user" placeholder="Shared Username (Room ID)">
+        <input type="text" id="individual-name" placeholder="Your Name">
+        <select id="role-select" onchange="togglePassField()">
+            <option value="" disabled selected>Select Account Type</option>
+            <option value="main">Main Account (1235)</option>
+            <option value="gf">Girlfriend Account</option>
+        </select>
+        <div id="pass-container" class="hidden"><input type="password" id="main-pass" placeholder="Password"></div>
+        <button onclick="handleLogin()">Access Account</button>
+    </div>
+
+    <div id="step-admin" class="content hidden">
+        <p style="text-align: center;">Administrator Panel</p>
+        <div style="background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0;">
+            <p id="pending-info" style="font-weight: 600; margin: 5px 0;">Waiting for connection...</p>
+            <button id="approve-btn" onclick="approveGf()" style="background: #10b981;" class="hidden">Approve Connection</button>
+        </div>
+        <button onclick="enterChat()" id="main-chat-btn" class="hidden">Open Secure Chat</button>
+    </div>
+
+    <div id="step-waiting" class="content hidden">
+        <div style="text-align: center;">
+            <h3>Waiting for Link...</h3>
+            <p>Profile <b><span id="display-name"></span></b> created.</p>
+            <p>Please wait for the Main Account to approve you.</p>
+        </div>
+    </div>
+
+    <div id="chat-interface" class="content hidden">
+        <div id="chat-window"></div>
+        <div style="display: flex; gap: 8px; margin-top: 15px;">
+            <input type="text" id="msg-input" placeholder="Type a message..." style="margin: 0;">
+            <button onclick="send()" style="width: 80px; margin: 0;">Send</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- CONFIGURE YOUR FIREBASE HERE ---
+    const firebaseConfig = {
+        apiKey: "YOUR_API_KEY",
+        authDomain: "YOUR_PROJECT.firebaseapp.com",
+        databaseURL: "https://YOUR_PROJECT.firebaseio.com",
+        projectId: "YOUR_PROJECT",
+        storageBucket: "YOUR_PROJECT.appspot.com",
+        messagingSenderId: "YOUR_ID",
+        appId: "YOUR_APP_ID"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let sharedUser, activeRole, myName;
+
+    function togglePassField() {
+        document.getElementById('pass-container').className = 
+            document.getElementById('role-select').value === 'main' ? '' : 'hidden';
+    }
+
+    function handleLogin() {
+        sharedUser = document.getElementById('shared-user').value.trim().toLowerCase();
+        myName = document.getElementById('individual-name').value.trim();
+        activeRole = document.getElementById('role-select').value;
+        const pass = document.getElementById('main-pass').value;
+
+        if (!sharedUser || !activeRole || !myName) return alert("Fill all fields");
+        if (activeRole === 'main' && pass !== "1235") return alert("Wrong Password");
+
+        sessionStorage.setItem('h_user', sharedUser);
+        sessionStorage.setItem('h_role', activeRole);
+        sessionStorage.setItem('h_name', myName);
+
+        // Register profile name in DB
+        db.ref(`rooms/${sharedUser}/names/${activeRole}`).set(myName);
+        initSession();
+    }
+
+    function initSession() {
+        sharedUser = sessionStorage.getItem('h_user');
+        activeRole = sessionStorage.getItem('h_role');
+        myName = sessionStorage.getItem('h_name');
+
+        document.getElementById('title').innerText = sharedUser;
+        document.getElementById('logout-ui').classList.remove('hidden');
+        document.getElementById('step-login').classList.add('hidden');
+
+        // Listen for approval status in real-time
+        db.ref(`rooms/${sharedUser}/approved`).on('value', (snapshot) => {
+            const isApproved = snapshot.val() === true;
+            if (activeRole === 'main') {
+                showAdminPanel(isApproved);
+            } else {
+                if (isApproved) enterChat();
+                else showWaiting();
+            }
+        });
+    }
+
+    function showAdminPanel(isApproved) {
+        document.getElementById('step-admin').classList.remove('hidden');
+        db.ref(`rooms/${sharedUser}/names/gf`).once('value', (s) => {
+            const gfName = s.val() || "Girlfriend Profile";
+            document.getElementById('pending-info').innerText = gfName + (isApproved ? " (Linked)" : " (Waiting)");
+            if (!isApproved && s.val()) document.getElementById('approve-btn').classList.remove('hidden');
+        });
+        if (isApproved) {
+            document.getElementById('approve-btn').classList.add('hidden');
+            document.getElementById('main-chat-btn').classList.remove('hidden');
+        }
+    }
+
+    function showWaiting() {
+        document.getElementById('display-name').innerText = myName;
+        document.getElementById('step-waiting').classList.remove('hidden');
+    }
+
+    function approveGf() {
+        db.ref(`rooms/${sharedUser}/approved`).set(true);
+    }
+
+    function enterChat() {
+        document.querySelectorAll('.content').forEach(c => c.classList.add('hidden'));
+        document.getElementById('chat-interface').classList.remove('hidden');
+        
+        // Listen for real-time messages
+        db.ref(`rooms/${sharedUser}/messages`).on('value', (snapshot) => {
+            const win = document.getElementById('chat-window');
+            win.innerHTML = "";
+            snapshot.forEach((child) => {
+                const m = child.val();
+                const div = document.createElement('div');
+                div.className = `msg ${m.role === 'main' ? 'main-msg' : 'gf-msg'}`;
+                div.innerHTML = `<span class="meta">${m.sender} • ${m.time}</span>${m.text}`;
+                win.appendChild(div);
+            });
+            win.scrollTop = win.scrollHeight;
+        });
+    }
+
+    function send() {
+        const input = document.getElementById('msg-input');
+        if (!input.value) return;
+        db.ref(`rooms/${sharedUser}/messages`).push({
+            sender: myName,
+            role: activeRole,
+            text: input.value,
+            time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+        });
+        input.value = "";
+    }
+
+    function logout() {
+        sessionStorage.clear();
+        location.reload();
+    }
+
+    if(sessionStorage.getItem('h_role')) initSession();
+</script>
+</body>
+</html>
